@@ -49,23 +49,6 @@
 
   <div id="overlay" class="overlay hidden"></div>
 
-  <script>
-    (() => {
-      const prologueDone = localStorage.getItem('emberwild-prologue-v1');
-      const skipOnce = sessionStorage.getItem('emberwild-skip-prologue-once');
-      if (skipOnce) sessionStorage.removeItem('emberwild-skip-prologue-once');
-      const runMainGame = !!(prologueDone || skipOnce);
-      const script = document.createElement('script');
-      script.src = runMainGame ? 'src/game-v2.js' : 'src/prologue.js';
-      if (runMainGame) {
-        script.onload = () => {
-          const bridge = document.createElement('script');
-          bridge.src = 'src/debt-bridge.js';
-          document.body.appendChild(bridge);
-        };
-      }
-      document.body.appendChild(script);
-    })();
-  </script>
+  <script src="src/main-menu.js"></script>
 </body>
 </html>
