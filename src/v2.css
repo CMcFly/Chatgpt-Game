@@ -1,0 +1,28 @@
+.item-compare {
+  margin: 9px 0 10px;
+  padding: 8px;
+  border: 1px solid #28372d;
+  background: #09100c;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.item-compare small { display:block; margin-bottom:4px; color:var(--muted); }
+.compare-up { color:#76d797; font-weight:800; margin-right:7px; }
+.compare-down { color:#e47f73; font-weight:800; margin-right:7px; }
+.compare-same { color:#8e9b92; margin-right:7px; }
+.materials-card { margin-top:10px; }
+.growth-note {
+  margin: 0 0 12px;
+  padding: 9px 10px;
+  border: 1px solid #3b493d;
+  background:#101810;
+  color:#cabc78;
+  font-size:12px;
+  line-height:1.45;
+}
+.stat-plus {
+  margin-left:8px;
+  padding:1px 7px;
+  min-width:28px;
+  color:#dff0df;
+}
