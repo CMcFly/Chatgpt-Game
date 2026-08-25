@@ -12,26 +12,18 @@
 
   const name = String(profile?.name || 'Wanderer').trim() || 'Wanderer';
 
-  function withIdentity(raw) {
+  function syncNameIntoSave() {
     try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return;
       const data = JSON.parse(raw);
-      if (data?.player) data.player.name = name;
-      return JSON.stringify(data);
+      if (!data?.player || data.player.name === name) return;
+      data.player.name = name;
+      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     } catch {
-      return raw;
+      // A malformed/legacy save is left untouched for the main game loader.
     }
   }
-
-  // Keep the chosen profile name inside the actual game save as well as the
-  // lightweight profile record. This also makes future save slots / character
-  // customization much easier to add without changing the identity model.
-  const nativeSetItem = localStorage.setItem.bind(localStorage);
-  localStorage.setItem = (key, value) => {
-    nativeSetItem(key, key === SAVE_KEY ? withIdentity(value) : value);
-  };
-
-  const existingSave = localStorage.getItem(SAVE_KEY);
-  if (existingSave) nativeSetItem(SAVE_KEY, withIdentity(existingSave));
 
   function renderIdentity() {
     if (!hud || hud.querySelector('[data-player-identity]')) return;
@@ -49,4 +41,10 @@
   const observer = new MutationObserver(() => renderIdentity());
   observer.observe(hud, { childList: true, subtree: false });
   renderIdentity();
+  syncNameIntoSave();
+  const syncTimer = setInterval(syncNameIntoSave, 1500);
+  window.addEventListener('beforeunload', () => {
+    clearInterval(syncTimer);
+    syncNameIntoSave();
+  });
 })();
