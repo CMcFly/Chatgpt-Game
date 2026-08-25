@@ -172,7 +172,7 @@
 
   function launchPrologue() {
     clearMenu();
-    loadScript('src/prologue.js');
+    loadScript('src/prologue.js', () => loadScript('src/identity-bridge.js'));
   }
 
   function launchMainGame() {
