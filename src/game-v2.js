@@ -1,0 +1,644 @@
+(() => {
+  'use strict';
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const hud = document.getElementById('hud');
+  const questEl = document.getElementById('quest');
+  const overlay = document.getElementById('overlay');
+  const toastEl = document.getElementById('toast');
+  const interactionEl = document.getElementById('interaction');
+
+  const TILE = 32;
+  const WORLD_W = 420;
+  const WORLD_H = 280;
+  const SAVE_KEY = 'emberwild-save-v2';
+  const OLD_SAVE_KEY = 'emberwild-save-v1';
+  const MAP_VERSION = 2;
+  const HEARTH = { tx: 34, ty: 140 };
+
+  const COLORS = {
+    grass: '#416b43',
+    grass2: '#365d3b',
+    forest: '#24442e',
+    deep_forest: '#1c3627',
+    water: '#254f68',
+    shallow: '#3a7180',
+    road: '#766b53',
+    rock: '#595e5a',
+    town: '#7f7953',
+    ruins: '#62665d',
+  };
+
+  const CLASSES = {
+    vanguard: {
+      name: 'Vanguard', icon: '🛡️', primary: 'def', primaryLabel: 'DEF',
+      desc: 'Durable frontline fighter. Automatically gains +1 DEF each level.',
+      base: { hp: 135, mp: 45, atk: 15, def: 13, mag: 5, spd: 8 },
+      skills: [
+        { id: 'shield_bash', name: 'Shield Bash', level: 1, mp: 6, power: 1.25, type: 'physical', stun: .25, text: 'Heavy strike with a chance to stun.' },
+        { id: 'second_wind', name: 'Second Wind', level: 3, mp: 10, heal: .35, text: 'Recover 35% of max HP.' },
+        { id: 'sundering', name: 'Sundering Blow', level: 6, mp: 14, power: 1.8, type: 'physical', text: 'Crushing attack that ignores part of defense.' },
+      ]
+    },
+    arcanist: {
+      name: 'Arcanist', icon: '🔮', primary: 'mag', primaryLabel: 'MAG',
+      desc: 'Elemental caster. Automatically gains +1 MAG each level.',
+      base: { hp: 92, mp: 110, atk: 7, def: 7, mag: 17, spd: 9 },
+      skills: [
+        { id: 'ember_bolt', name: 'Ember Bolt', level: 1, mp: 7, power: 1.35, type: 'magic', text: 'Focused magical flame.' },
+        { id: 'mend', name: 'Mend', level: 3, mp: 12, heal: .28, text: 'Restore 28% of max HP.' },
+        { id: 'storm_lance', name: 'Storm Lance', level: 6, mp: 18, power: 2.0, type: 'magic', text: 'A violent lance of storm energy.' },
+      ]
+    },
+    shade: {
+      name: 'Shade', icon: '🗡️', primary: 'spd', primaryLabel: 'SPD',
+      desc: 'Fast opportunist. Automatically gains +1 SPD each level.',
+      base: { hp: 105, mp: 65, atk: 14, def: 8, mag: 7, spd: 16 },
+      skills: [
+        { id: 'quickcut', name: 'Quickcut', level: 1, mp: 5, power: 1.15, type: 'physical', crit: .25, text: 'Fast strike with increased crit chance.' },
+        { id: 'smoke_step', name: 'Smoke Step', level: 3, mp: 10, buff: 'evade', text: 'Gain a strong chance to evade the next attack.' },
+        { id: 'execution', name: 'Execution', level: 6, mp: 15, power: 1.55, type: 'physical', execute: true, text: 'Deals much more damage to wounded enemies.' },
+      ]
+    }
+  };
+
+  const ENEMY_TYPES = {
+    mossling: {
+      name: 'Mossling', icon: '🟢', minLevel: 1, hp: 42, atk: 8, def: 3, xp: 12, gold: [3, 7], color: '#72b66e',
+      behavior: 'neutral', aggro: 0, leash: 7, material: ['Moss Gel', 1, 2]
+    },
+    ash_rat: {
+      name: 'Ash Rat', icon: '🐀', minLevel: 2, hp: 54, atk: 10, def: 4, xp: 17, gold: [4, 9], color: '#9d8170',
+      behavior: 'passive', aggro: 4, leash: 6, material: ['Ash Rat Hide', 1, 1]
+    },
+    thornling: {
+      name: 'Thornling', icon: '🌿', minLevel: 3, hp: 70, atk: 12, def: 6, xp: 24, gold: [6, 12], color: '#538f51',
+      behavior: 'aggressive', aggro: 5.5, leash: 8, material: ['Thorn Fiber', 1, 2]
+    },
+    dusk_wisp: {
+      name: 'Dusk Wisp', icon: '🟣', minLevel: 4, hp: 64, atk: 14, def: 5, xp: 29, gold: [7, 14], color: '#9d72c8', magic: true,
+      behavior: 'aggressive', aggro: 6.5, leash: 9, material: ['Wisp Dust', 1, 1]
+    },
+    stoneback: {
+      name: 'Stoneback', icon: '🪨', minLevel: 5, hp: 105, atk: 15, def: 10, xp: 38, gold: [10, 17], color: '#7e8580',
+      behavior: 'neutral', aggro: 0, leash: 5, material: ['Stoneback Plate', 1, 1]
+    },
+    forest_stag: {
+      name: 'Forest Stag', icon: '🦌', minLevel: 2, hp: 50, atk: 8, def: 4, xp: 15, gold: [0, 3], color: '#a98662',
+      behavior: 'passive', aggro: 5.5, leash: 10, material: ['Stag Hide', 1, 2]
+    },
+    briar_troll: {
+      name: 'Briar Troll', icon: '👹', minLevel: 7, hp: 190, atk: 21, def: 12, xp: 90, gold: [22, 36], color: '#74543f', boss: true,
+      behavior: 'aggressive', aggro: 2.3, leash: 5, material: ['Briar Heart', 1, 1]
+    },
+    ruin_sentinel: {
+      name: 'Ruin Sentinel', icon: '🗿', minLevel: 5, hp: 112, atk: 16, def: 11, xp: 45, gold: [10, 18], color: '#777d73',
+      behavior: 'aggressive', aggro: 5, leash: 7, material: ['Ancient Fragment', 1, 2]
+    },
+  };
+
+  const RARITIES = {
+    common: { name: 'Common', key: 'common', mult: 1.0 },
+    fine: { name: 'Fine', key: 'fine', mult: 1.16 },
+    rare: { name: 'Rare', key: 'rare', mult: 1.34 },
+    epic: { name: 'Epic', key: 'epic', mult: 1.58 },
+  };
+
+  const ITEM_BASES = [
+    { slot: 'weapon', names: ['Ironblade', 'Ashwood Staff', 'Hunting Knife'], stats: ['atk', 'mag'] },
+    { slot: 'head', names: ['Trail Hood', 'Iron Cap', 'Rune Circlet'], stats: ['def', 'mag'] },
+    { slot: 'body', names: ['Warden Mail', 'Traveler Coat', 'Mystic Wrap'], stats: ['def', 'hp'] },
+    { slot: 'feet', names: ['Path Boots', 'Greaves', 'Softstep Shoes'], stats: ['def', 'spd'] },
+    { slot: 'charm', names: ['Amber Charm', 'Moon Token', 'Old Coin'], stats: ['hp', 'mp', 'atk', 'mag'] },
+  ];
+
+  const state = {
+    mode: 'world',
+    started: false,
+    paused: false,
+    keys: new Set(),
+    world: [],
+    player: null,
+    enemies: [],
+    dungeonEnemies: [],
+    buildings: [],
+    npcs: [],
+    pois: [],
+    battle: null,
+    camera: { x: 0, y: 0 },
+    dungeon: null,
+    time: 0,
+    lastSave: 0,
+    lastMove: { dx: 0, dy: 1 },
+    walkCycle: 0,
+  };
+
+  function makePlayer(classId) {
+    const c = CLASSES[classId];
+    return {
+      x: (HEARTH.tx + .5) * TILE, y: (HEARTH.ty + 4.5) * TILE, radius: 10, speed: 175,
+      classId, level: 1, xp: 0, xpNext: 100, gold: 18,
+      hp: c.base.hp, mp: c.base.mp,
+      potions: 3,
+      inventory: [], materials: {},
+      equipment: { weapon: null, head: null, body: null, feet: null, charm: null },
+      unlockedClasses: [classId], learnedSkills: [c.skills[0].id],
+      statPoints: 0,
+      freeStats: { hp: 0, mp: 0, atk: 0, def: 0, mag: 0, spd: 0 },
+      quest: makeQuest('green_problem'),
+      discoveries: { hearthcross: true },
+      evade: false,
+    };
+  }
+
+  function makeQuest(id) {
+    if (id === 'green_problem') return { id, name: 'Green Problem', kills: 0, target: 3, complete: false, claimed: false };
+    if (id === 'camp_call') return { id, name: 'Roadside Check-In', complete: false, claimed: false, talked: false };
+    if (id === 'old_stones') return { id, name: 'Old Stones', complete: false, claimed: false, discovered: false };
+    return { id: 'free_roam', name: 'Into Mossroad Vale', complete: false, claimed: false };
+  }
+
+  function hash2(x, y, salt = 0) {
+    let n = Math.imul((x + salt * 13) | 0, 374761393) ^ Math.imul((y - salt * 17) | 0, 668265263);
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+  }
+
+  function buildWorld() {
+    const map = Array.from({ length: WORLD_H }, () => Array(WORLD_W).fill('forest'));
+
+    for (let y = 0; y < WORLD_H; y++) {
+      for (let x = 0; x < WORLD_W; x++) {
+        const edge = Math.min(x, y, WORLD_W - 1 - x, WORLD_H - 1 - y);
+        const n = hash2(x, y, 2);
+        if (edge < 3) map[y][x] = 'deep_forest';
+        else map[y][x] = n < .22 ? 'deep_forest' : n < .52 ? 'forest' : 'grass2';
+      }
+    }
+
+    paintCircle(map, HEARTH.tx, HEARTH.ty, 18, 'grass');
+    paintCircle(map, HEARTH.tx, HEARTH.ty, 10, 'town');
+    paintRoad(map, HEARTH.tx - 8, HEARTH.ty, 315, HEARTH.ty - 4, 2);
+    paintRoad(map, HEARTH.tx, HEARTH.ty, 90, 88, 1);
+    paintRoad(map, 90, 88, 160, 66, 1);
+    paintRoad(map, 160, 66, 236, 102, 1);
+    paintRoad(map, 180, HEARTH.ty - 3, 248, 188, 1);
+    paintRoad(map, 248, 188, 323, 204, 1);
+    paintCircle(map, 92, 88, 9, 'grass');
+    paintCircle(map, 92, 88, 4, 'town');
+    paintCircle(map, 162, 66, 12, 'grass2');
+    paintCircle(map, 162, 66, 6, 'ruins');
+    paintCircle(map, 250, 190, 15, 'rock');
+    paintCircle(map, 250, 190, 7, 'grass2');
+    paintCircle(map, 232, 104, 16, 'grass');
+    paintCircle(map, 232, 104, 11, 'shallow');
+    paintCircle(map, 232, 104, 7, 'water');
+    paintCircle(map, 326, 205, 15, 'grass2');
+
+    state.world = map;
+    state.buildings = [
+      { id: 'hearth', name: 'Hearth House', x: (HEARTH.tx-5)*TILE, y: (HEARTH.ty-6)*TILE, w: 3*TILE, h: 2*TILE, type: 'healer', color: '#7b493d' },
+      { id: 'forge', name: 'Copper Anvil', x: (HEARTH.tx+2)*TILE, y: (HEARTH.ty-6)*TILE, w: 3*TILE, h: 2*TILE, type: 'smith', color: '#575f66' },
+      { id: 'trainer', name: 'Path Trainer', x: (HEARTH.tx-5)*TILE, y: (HEARTH.ty+3)*TILE, w: 3*TILE, h: 2*TILE, type: 'trainer', color: '#6f5f95' },
+      { id: 'guild', name: 'Trail Guild', x: (HEARTH.tx+2)*TILE, y: (HEARTH.ty+3)*TILE, w: 3*TILE, h: 2*TILE, type: 'guild', color: '#715a34' },
+      { id: 'waystone', name: 'Hearthcross Waystone', x: (HEARTH.tx+.2)*TILE, y: (HEARTH.ty+1)*TILE, w: .8*TILE, h: .8*TILE, type: 'waystone', color: '#588a9c' },
+      { id: 'camp_tent', name: 'Wayfarer Camp', x: 90*TILE, y: 86*TILE, w: 3*TILE, h: 2*TILE, type: 'camp', color: '#775f43' },
+      { id: 'ruin_gate', name: 'Barrowroot Ruins', x: 160*TILE, y: 63*TILE, w: 4*TILE, h: 2*TILE, type: 'dungeon', color: '#565d55' },
+    ];
+    state.npcs = [
+      { id: 'rhea', name: 'Rhea', x: (HEARTH.tx+1.2)*TILE, y: (HEARTH.ty+5.3)*TILE, color: '#e4b76c', text: 'The forest gets stranger the farther you follow the Mossroad.' },
+      { id: 'mara', name: 'Scout Mara', x: 94*TILE, y: 89*TILE, color: '#9fc488', text: 'Hearthcross sent you? Good. The old ruins northeast have been restless.' },
+    ];
+    state.pois = [
+      { id: 'hearthcross', name: 'Hearthcross', tx: HEARTH.tx, ty: HEARTH.ty, type: 'town', radius: 18 },
+      { id: 'camp', name: 'Wayfarer Camp', tx: 92, ty: 88, type: 'camp', radius: 10 },
+      { id: 'ruins', name: 'Old Mossroad Ruins', tx: 162, ty: 66, type: 'ruins', radius: 14 },
+      { id: 'quarry', name: 'Ironroot Quarry', tx: 250, ty: 190, type: 'quarry', radius: 16 },
+      { id: 'pool', name: 'Glasswater Pool', tx: 232, ty: 104, type: 'fishing', radius: 17 },
+      { id: 'troll_grove', name: 'Briar Grove', tx: 326, ty: 205, type: 'boss', radius: 16 },
+    ];
+  }
+
+  function paintCircle(map, cx, cy, r, type) {
+    for (let y = Math.max(0, cy-r); y <= Math.min(WORLD_H-1, cy+r); y++) {
+      for (let x = Math.max(0, cx-r); x <= Math.min(WORLD_W-1, cx+r); x++) {
+        if (Math.hypot(x-cx, y-cy) <= r) map[y][x] = type;
+      }
+    }
+  }
+
+  function paintRoad(map, x0, y0, x1, y1, half = 1) {
+    const steps = Math.max(Math.abs(x1-x0), Math.abs(y1-y0));
+    for (let i=0;i<=steps;i++) {
+      const t = steps ? i/steps : 0;
+      const x = Math.round(x0 + (x1-x0)*t), y = Math.round(y0 + (y1-y0)*t);
+      for (let oy=-half;oy<=half;oy++) for (let ox=-half;ox<=half;ox++) {
+        if (x+ox>=0&&y+oy>=0&&x+ox<WORLD_W&&y+oy<WORLD_H) map[y+oy][x+ox] = 'road';
+      }
+    }
+  }
+
+  function tileAtPixel(px, py) {
+    const x = Math.floor(px / TILE), y = Math.floor(py / TILE);
+    if (x < 0 || y < 0 || x >= WORLD_W || y >= WORLD_H) return 'deep_forest';
+    return state.world[y][x];
+  }
+
+  function isWalkable(px, py, ignoreBuildings = false) {
+    const t = tileAtPixel(px, py);
+    if (t === 'water') return false;
+    if (!ignoreBuildings) {
+      for (const b of state.buildings) {
+        if (px > b.x - 4 && px < b.x + b.w + 4 && py > b.y - 4 && py < b.y + b.h + 4) return false;
+      }
+    }
+    return true;
+  }
+
+  function spawnEnemies() {
+    const list = [];
+    let id = 0;
+    const addCluster = (type, cx, cy, count, spread) => {
+      for (let i=0;i<count;i++) {
+        const a = hash2(i, id, 8) * Math.PI * 2;
+        const d = 2 + hash2(i, id, 9) * spread;
+        list.push(createEnemy(type, (cx+Math.cos(a)*d)*TILE, (cy+Math.sin(a)*d)*TILE, id++));
+      }
+    };
+    addCluster('mossling', 56, 140, 9, 14);
+    addCluster('forest_stag', 74, 112, 5, 18);
+    addCluster('ash_rat', 103, 91, 7, 16);
+    addCluster('thornling', 137, 80, 9, 20);
+    addCluster('dusk_wisp', 185, 83, 8, 22);
+    addCluster('stoneback', 248, 188, 7, 18);
+    addCluster('thornling', 270, 145, 8, 25);
+    addCluster('dusk_wisp', 300, 180, 7, 22);
+    list.push(createEnemy('briar_troll', 326*TILE, 205*TILE, id++));
+    state.enemies = list;
+  }
+
+  function createEnemy(type, x, y, id) {
+    const base = ENEMY_TYPES[type];
+    const level = base.minLevel + (base.boss ? 1 : Math.floor(hash2(id, base.minLevel, 14)*2));
+    const scale = 1 + (level - 1) * .11;
+    return {
+      id, type, x, y, homeX: x, homeY: y, radius: base.boss ? 17 : 12,
+      level, alive: true, respawn: 0, angle: hash2(id, level, 3) * Math.PI * 2,
+      hpMax: Math.round(base.hp * scale), hp: Math.round(base.hp * scale),
+      atk: Math.round(base.atk * scale), def: Math.round(base.def * scale),
+      state: 'wander',
+    };
+  }
+
+  function getStats() {
+    const p = state.player, c = CLASSES[p.classId], levels = p.level - 1;
+    const s = {
+      hp: c.base.hp + levels * 5,
+      mp: c.base.mp + levels * 3,
+      atk: c.base.atk,
+      def: c.base.def,
+      mag: c.base.mag,
+      spd: c.base.spd,
+    };
+    s[c.primary] += levels;
+    for (const [k,v] of Object.entries(p.freeStats || {})) {
+      if (k === 'hp') s.hp += v * 5;
+      else if (k === 'mp') s.mp += v * 4;
+      else s[k] += v;
+    }
+    Object.values(p.equipment).filter(Boolean).forEach(item => {
+      Object.entries(item.bonus).forEach(([k, v]) => s[k] = (s[k] || 0) + v);
+    });
+    return s;
+  }
+
+  function ensureVitals() {
+    const s = getStats();
+    state.player.hp = Math.min(state.player.hp, s.hp);
+    state.player.mp = Math.min(state.player.mp, s.mp);
+  }
+
+  function chooseStarterRarity(isBoss = false) {
+    const roll = Math.random();
+    if (isBoss) {
+      if (roll < .08) return RARITIES.epic;
+      if (roll < .36) return RARITIES.rare;
+      if (roll < .72) return RARITIES.fine;
+      return RARITIES.common;
+    }
+    if (roll < .09) return RARITIES.rare;
+    if (roll < .34) return RARITIES.fine;
+    return RARITIES.common;
+  }
+
+  function generateItem(level, isBoss = false) {
+    const base = ITEM_BASES[Math.floor(Math.random()*ITEM_BASES.length)];
+    const rarity = chooseStarterRarity(isBoss);
+    const name = base.names[Math.floor(Math.random()*base.names.length)];
+    const bonus = {};
+    const power = Math.max(1, Math.round((2 + level * 1.25) * rarity.mult));
+    const first = base.stats[Math.floor(Math.random()*base.stats.length)];
+    bonus[first] = power;
+    if (rarity.mult >= 1.3) {
+      const second = base.stats[Math.floor(Math.random()*base.stats.length)];
+      bonus[second] = (bonus[second] || 0) + Math.max(1, Math.round(power * .5));
+    }
+    return { id: `${Date.now()}-${Math.random()}`, name, slot: base.slot, rarity: rarity.key, rarityName: rarity.name, bonus, level };
+  }
+
+  function startGame(classId) {
+    buildWorld(); state.player = makePlayer(classId); spawnEnemies(); state.started = true; closeOverlay();
+    toast(`You are a ${CLASSES[classId].name}. Hearthcross lies behind you; Mossroad Vale is open.`);
+    updateUI(); saveGame();
+  }
+
+  function showClassChoice() {
+    state.paused = true; overlay.classList.remove('hidden');
+    overlay.innerHTML = `<div class="modal"><h2>Choose your first path</h2><p class="subtitle">Every level gives one automatic class stat and one free stat point. A trainer can unlock other paths later.</p><div class="class-grid">${Object.entries(CLASSES).map(([id,c]) => `<div class="card"><div class="pixel-portrait">${c.icon}</div><h3>${c.name}</h3><p>${c.desc}</p><div class="small">Automatic growth: +1 ${c.primaryLabel} / level</div><button class="primary" data-class="${id}">Begin as ${c.name}</button></div>`).join('')}</div></div>`;
+    overlay.querySelectorAll('[data-class]').forEach(btn => btn.addEventListener('click', () => startGame(btn.dataset.class)));
+  }
+
+  function closeOverlay() { overlay.classList.add('hidden'); overlay.innerHTML=''; state.paused=false; }
+
+  function update(dt) {
+    if (!state.started || state.paused) return;
+    state.time += dt;
+    if (state.mode === 'dungeon') return updateDungeon(dt);
+    if (state.mode !== 'world') return;
+
+    const p = state.player;
+    let dx = 0, dy = 0;
+    if (state.keys.has('w') || state.keys.has('arrowup')) dy--;
+    if (state.keys.has('s') || state.keys.has('arrowdown')) dy++;
+    if (state.keys.has('a') || state.keys.has('arrowleft')) dx--;
+    if (state.keys.has('d') || state.keys.has('arrowright')) dx++;
+    if (dx || dy) {
+      const len=Math.hypot(dx,dy); dx/=len; dy/=len;
+      state.lastMove={dx,dy}; state.walkCycle += dt*9;
+      const t=tileAtPixel(p.x,p.y), mod=t==='deep_forest'?.78:t==='forest'?.88:t==='rock'?.9:1;
+      const step=p.speed*mod*dt, nx=p.x+dx*step, ny=p.y+dy*step;
+      if(isWalkable(nx,p.y))p.x=nx; if(isWalkable(p.x,ny))p.y=ny;
+      updateDiscoveries();
+    }
+
+    for (const e of state.enemies) updateEnemy(e, dt, p);
+    updateCamera(dt);
+    updateInteractionPrompt();
+    if(performance.now()-state.lastSave>5000)saveGame();
+  }
+
+  function updateEnemy(e, dt, p) {
+    const base=ENEMY_TYPES[e.type];
+    if(!e.alive){e.respawn-=dt;if(e.respawn<=0){e.alive=true;e.hp=e.hpMax;e.x=e.homeX;e.y=e.homeY;e.state='wander';}return;}
+    const dPlayer=Math.hypot(p.x-e.x,p.y-e.y), dHome=Math.hypot(e.x-e.homeX,e.y-e.homeY);
+    const aggroPx=(base.aggro||0)*TILE, leashPx=(base.leash||7)*TILE;
+
+    if(base.behavior==='aggressive' && dPlayer<=aggroPx && dHome<=leashPx)e.state='chase';
+    if(e.state==='chase' && (dHome>leashPx || dPlayer>aggroPx*1.75))e.state='return';
+    if(base.behavior==='passive' && dPlayer<=aggroPx && dHome<=leashPx)e.state='flee';
+    if(e.state==='flee' && (dPlayer>aggroPx*1.5 || dHome>leashPx))e.state='return';
+    if(e.state==='return' && dHome<8)e.state='wander';
+
+    let vx=0,vy=0,speed=base.boss?26:20;
+    if(e.state==='chase'){const d=Math.max(1,dPlayer);vx=(p.x-e.x)/d;vy=(p.y-e.y)/d;speed=base.boss?42:48;}
+    else if(e.state==='flee'){const d=Math.max(1,dPlayer);vx=(e.x-p.x)/d;vy=(e.y-p.y)/d;speed=55;}
+    else if(e.state==='return'){const d=Math.max(1,dHome);vx=(e.homeX-e.x)/d;vy=(e.homeY-e.y)/d;speed=50;}
+    else {e.angle+=(Math.random()-.5)*dt*.9;vx=Math.cos(e.angle);vy=Math.sin(e.angle);if(dHome>70)e.angle=Math.atan2(e.homeY-e.y,e.homeX-e.x);speed=base.boss?7:12;}
+
+    const nx=e.x+vx*speed*dt,ny=e.y+vy*speed*dt;
+    if(isWalkable(nx,ny,true)){e.x=nx;e.y=ny;}
+    if(Math.hypot(p.x-e.x,p.y-e.y)<p.radius+e.radius+3)startBattle(e);
+  }
+
+  function updateCamera(dt) {
+    const p=state.player;
+    state.camera.x+=((p.x-canvas.width/2)-state.camera.x)*Math.min(1,dt*8);
+    state.camera.y+=((p.y-canvas.height/2)-state.camera.y)*Math.min(1,dt*8);
+    state.camera.x=Math.max(0,Math.min(WORLD_W*TILE-canvas.width,state.camera.x));
+    state.camera.y=Math.max(0,Math.min(WORLD_H*TILE-canvas.height,state.camera.y));
+  }
+
+  function updateDiscoveries() {
+    const p=state.player;
+    for(const poi of state.pois){
+      if(p.discoveries?.[poi.id])continue;
+      if(Math.hypot(p.x/TILE-poi.tx,p.y/TILE-poi.ty)<=poi.radius){
+        p.discoveries[poi.id]=true;toast(`Discovered: ${poi.name}`,2800);
+        if(p.quest.id==='old_stones'&&poi.id==='ruins'){p.quest.discovered=true;p.quest.complete=true;updateUI();}
+      }
+    }
+  }
+
+  function getNearbyInteractable() {
+    if(!state.player)return null;const p=state.player;let best=null,bestD=72;
+    for(const b of state.buildings){const d=Math.hypot(p.x-(b.x+b.w/2),p.y-(b.y+b.h/2));if(d<bestD){best=b;bestD=d;}}
+    for(const n of state.npcs){const d=Math.hypot(p.x-n.x,p.y-n.y);if(d<bestD){best=n;bestD=d;}}
+    return best;
+  }
+
+  function updateInteractionPrompt(){const near=getNearbyInteractable();if(near){interactionEl.textContent=`E — ${near.name}`;interactionEl.classList.remove('hidden');}else interactionEl.classList.add('hidden');}
+
+  function interact() {
+    if(!state.started||state.paused)return;
+    if(state.mode==='dungeon')return interactDungeon();
+    if(state.mode!=='world')return;
+    const target=getNearbyInteractable();if(!target)return;
+    if(target.type==='healer')healAtTown();
+    else if(target.type==='smith')openShop();
+    else if(target.type==='trainer')openTrainer();
+    else if(target.type==='guild')openGuild();
+    else if(target.type==='waystone')toast('The Waystone is dormant. Fast travel will unlock after you discover another bound Waystone.');
+    else if(target.type==='camp')toast('Wayfarer Camp: a safe rest point on the Mossroad.');
+    else if(target.type==='dungeon')openDungeonMenu();
+    else if(target.id==='mara')talkMara(target);
+    else if(target.text)toast(`${target.name}: “${target.text}”`,3200);
+  }
+
+  function talkMara(npc){const q=state.player.quest;if(q.id==='camp_call'&&!q.talked){q.talked=true;q.complete=true;toast('Scout Mara: “Tell the Guild the old ruins are active again.”',3200);updateUI();saveGame();return;}toast(`${npc.name}: “${npc.text}”`,3200);}
+
+  function healAtTown(){const s=getStats();state.player.hp=s.hp;state.player.mp=s.mp;toast('Rested at Hearth House. HP and MP restored.');updateUI();saveGame();}
+
+  function openShop(){
+    state.paused=true;const stock=[generateItem(Math.max(1,state.player.level)),generateItem(Math.max(1,state.player.level)),generateItem(Math.max(1,state.player.level+1))];
+    overlay.classList.remove('hidden');overlay.innerHTML=`<div class="modal"><h2>Copper Anvil</h2><p class="subtitle">Starter-region stock is capped at Rare. Gold: <b>${state.player.gold}</b></p><div class="item-grid">${stock.map((i,n)=>itemCard(i,22+i.level*7,`data-buy="${n}"`)).join('')}</div><div class="btn-row"><button data-close>Leave</button></div></div>`;
+    overlay.querySelector('[data-close]').onclick=closeOverlay;
+    overlay.querySelectorAll('[data-buy]').forEach(btn=>btn.onclick=()=>{const item=stock[Number(btn.dataset.buy)],cost=22+item.level*7;if(state.player.gold<cost)return toast('Not enough gold.');state.player.gold-=cost;state.player.inventory.push(item);updateUI();saveGame();toast(`Bought ${item.rarityName} ${item.name}.`);closeOverlay();openShop();});
+  }
+
+  function openTrainer(){
+    state.paused=true;const p=state.player;overlay.classList.remove('hidden');
+    overlay.innerHTML=`<div class="modal"><h2>Path Trainer</h2><p class="subtitle">Unlock a path once, then switch here freely. Learned skills remain known. New paths cost 60g after level 3.</p><div class="class-grid">${Object.entries(CLASSES).map(([id,c])=>{const unlocked=p.unlockedClasses.includes(id),canBuy=p.level>=3&&p.gold>=60;return `<div class="card ${p.classId===id?'selected':''}"><div class="pixel-portrait">${c.icon}</div><h3>${c.name}</h3><p>${c.desc}</p><button data-path="${id}" ${(!unlocked&&!canBuy)?'disabled':''}>${p.classId===id?'Current Path':unlocked?'Switch Path':'Unlock — 60g'}</button></div>`;}).join('')}</div><div class="btn-row"><button data-close>Leave</button></div></div>`;
+    overlay.querySelector('[data-close]').onclick=closeOverlay;
+    overlay.querySelectorAll('[data-path]').forEach(btn=>btn.onclick=()=>{const id=btn.dataset.path;if(p.classId===id)return;if(!p.unlockedClasses.includes(id)){p.gold-=60;p.unlockedClasses.push(id);}p.classId=id;learnLevelSkills();const s=getStats();p.hp=s.hp;p.mp=s.mp;updateUI();saveGame();closeOverlay();toast(`Path changed: ${CLASSES[id].name}.`);});
+  }
+
+  function openGuild(){
+    const p=state.player,q=p.quest;
+    if(q.id==='green_problem'){
+      if(q.complete&&!q.claimed){q.claimed=true;p.gold+=35;gainXp(45);p.potions+=1;p.quest=makeQuest('camp_call');toast('Guild reward: 35g, 45 XP, 1 tonic. New objective: find Wayfarer Camp and speak to Scout Mara.',4000);saveGame();updateUI();return;}
+      toast(q.complete?'Guildmaster: “Good. Come collect your reward.”':'Guildmaster: “Clear three Mosslings east of Hearthcross and come back.”',3000);return;
+    }
+    if(q.id==='camp_call'){
+      if(q.complete&&!q.claimed){q.claimed=true;p.gold+=45;gainXp(55);p.quest=makeQuest('old_stones');toast('Guild reward: 45g, 55 XP. New objective: discover the Old Mossroad Ruins northeast of the camp.',4000);saveGame();updateUI();return;}
+      toast(q.complete?'Guildmaster: “Mara sent word? Then report in.”':'Guildmaster: “Follow the north trail to Wayfarer Camp. Speak to Scout Mara.”',3000);return;
+    }
+    if(q.id==='old_stones'){
+      if(q.complete&&!q.claimed){q.claimed=true;p.gold+=60;gainXp(65);p.quest=makeQuest('free_roam');toast('Guild reward: 60g, 65 XP. Barrowroot Ruins are now your first dungeon target.',4000);saveGame();updateUI();return;}
+      toast(q.complete?'Guildmaster: “You found them. Let’s hear it.”':'Guildmaster: “Find the Old Mossroad Ruins. They lie northeast of Wayfarer Camp.”',3000);return;
+    }
+    toast('Guildmaster: “Mossroad Vale is yours to explore. Quarry, pool, ruins—pick a trail.”',3000);
+  }
+
+  function learnLevelSkills(){const p=state.player;for(const skill of CLASSES[p.classId].skills)if(p.level>=skill.level&&!p.learnedSkills.includes(skill.id)){p.learnedSkills.push(skill.id);toast(`Learned skill: ${skill.name}`);}}
+  function allSkills(){const out=[];for(const c of Object.values(CLASSES))for(const s of c.skills)if(state.player.learnedSkills.includes(s.id))out.push(s);return out;}
+
+  function startBattle(enemy, source='world'){
+    if((state.mode!=='world'&&state.mode!=='dungeon')||state.paused)return;
+    state.paused=true;state.battle={enemy,source,enemyHp:enemy.hpMax,log:[`A ${ENEMY_TYPES[enemy.type].name} blocks your path.`],enemyStunned:false};renderBattle();
+  }
+
+  function renderBattle(){
+    const p=state.player,b=state.battle,e=b.enemy,eb=ENEMY_TYPES[e.type],s=getStats();overlay.classList.remove('hidden');
+    overlay.innerHTML=`<div class="modal"><h2>Battle — ${eb.name}</h2><p class="subtitle">Level ${e.level}${eb.boss?' · ELITE':''} · ${capitalize(eb.behavior)}</p><div class="battle-grid"><div class="fighter"><div class="pixel-portrait">${CLASSES[p.classId].icon}</div><b>${CLASSES[p.classId].name} · Lv ${p.level}</b>${bar('HP',p.hp,s.hp,'')}${bar('MP',p.mp,s.mp,'mana')}</div><div class="fighter"><div class="pixel-portrait">${eb.icon}</div><b>${eb.name} · Lv ${e.level}</b>${bar('HP',b.enemyHp,e.hpMax,'')}</div></div><div class="battle-log">${b.log.slice(-8).map(x=>`<div>› ${x}</div>`).join('')}</div><div class="btn-row"><button data-action="attack">Attack</button><button data-action="skills">Skills</button><button data-action="potion" ${p.potions<=0?'disabled':''}>Potion (${p.potions})</button><button data-action="flee" class="danger">Flee</button></div></div>`;
+    overlay.querySelector('[data-action="attack"]').onclick=()=>playerAttack();overlay.querySelector('[data-action="skills"]').onclick=renderSkills;overlay.querySelector('[data-action="potion"]').onclick=usePotionBattle;overlay.querySelector('[data-action="flee"]').onclick=fleeBattle;
+  }
+
+  function bar(label,current,max,cls){const pct=Math.max(0,Math.min(100,current/max*100));return `<div class="small">${label} ${Math.max(0,Math.round(current))}/${Math.round(max)}</div><div class="bar ${cls}"><i style="width:${pct}%"></i></div>`;}
+
+  function playerAttack(skill=null){
+    const p=state.player,s=getStats(),b=state.battle,e=b.enemy;let damage;
+    if(!skill){const crit=Math.random()<.08+s.spd*.002;damage=Math.max(1,Math.round((s.atk*1.45-e.def*.72)*(.9+Math.random()*.2)*(crit?1.6:1)));b.log.push(`${crit?'Critical! ':''}You strike for ${damage}.`);}
+    else{if(p.mp<skill.mp){b.log.push('Not enough MP.');renderBattle();return;}p.mp-=skill.mp;if(skill.heal){const amount=Math.round(s.hp*skill.heal);p.hp=Math.min(s.hp,p.hp+amount);b.log.push(`${skill.name} restores ${amount} HP.`);enemyTurn();return;}if(skill.buff==='evade'){p.evade=true;b.log.push('You vanish into a veil of smoke.');enemyTurn();return;}const stat=skill.type==='magic'?s.mag:s.atk,defense=skill.type==='magic'?e.def*.45:e.def*.65;let power=skill.power;if(skill.execute&&b.enemyHp/e.hpMax<.4)power*=1.65;const crit=Math.random()<(.08+(skill.crit||0));damage=Math.max(1,Math.round((stat*1.55*power-defense)*(.92+Math.random()*.18)*(crit?1.6:1)));b.log.push(`${skill.name}${crit?' critically':''} hits for ${damage}.`);if(skill.stun&&Math.random()<skill.stun){b.enemyStunned=true;b.log.push(`${ENEMY_TYPES[e.type].name} is stunned.`);}}
+    b.enemyHp-=damage;if(b.enemyHp<=0)return winBattle();enemyTurn();
+  }
+
+  function renderSkills(){const skills=allSkills(),p=state.player;overlay.innerHTML=`<div class="modal narrow"><h2>Known Skills</h2><p class="subtitle">Skills from unlocked paths stay known.</p><div class="skill-grid">${skills.map((s,i)=>`<div class="card"><h3>${s.name}</h3><p>${s.text}</p><div class="small">MP ${s.mp}</div><button data-skill="${i}" ${p.mp<s.mp?'disabled':''}>Use</button></div>`).join('')}</div><div class="btn-row"><button data-back>Back</button></div></div>`;overlay.querySelector('[data-back]').onclick=renderBattle;overlay.querySelectorAll('[data-skill]').forEach(btn=>btn.onclick=()=>playerAttack(skills[Number(btn.dataset.skill)]));}
+
+  function enemyTurn(){const p=state.player,s=getStats(),b=state.battle,e=b.enemy,eb=ENEMY_TYPES[e.type];if(b.enemyStunned){b.enemyStunned=false;b.log.push(`${eb.name} loses its turn.`);renderBattle();return;}if(p.evade&&Math.random()<.7){p.evade=false;b.log.push(`You evade ${eb.name}'s attack.`);renderBattle();return;}p.evade=false;const defense=eb.magic?s.def*.45:s.def,damage=Math.max(1,Math.round((e.atk*1.5-defense*.62)*(.88+Math.random()*.24)));p.hp-=damage;b.log.push(`${eb.name} hits you for ${damage}.`);if(p.hp<=0)loseBattle();else renderBattle();}
+  function usePotionBattle(){const p=state.player,s=getStats();if(p.potions<=0)return;p.potions--;const heal=Math.round(s.hp*.45);p.hp=Math.min(s.hp,p.hp+heal);state.battle.log.push(`You drink a tonic and recover ${heal} HP.`);enemyTurn();}
+
+  function winBattle(){
+    const p=state.player,b=state.battle,e=b.enemy,eb=ENEMY_TYPES[e.type];e.alive=false;e.respawn=eb.boss?60:24;
+    const gold=randInt(eb.gold[0],eb.gold[1])+Math.floor(e.level*1.2);p.gold+=gold;const xp=Math.round(eb.xp*(1+(e.level-eb.minLevel)*.1));
+    const [matName,minMat,maxMat]=eb.material||[];let matText='';if(matName){const qty=randInt(minMat,maxMat);p.materials[matName]=(p.materials[matName]||0)+qty;matText=` · ${qty} ${matName}`;}
+    let loot=null;const chance=eb.boss?.75:.28;if(Math.random()<chance){loot=generateItem(e.level,!!eb.boss);p.inventory.push(loot);}
+    if(e.type==='mossling'&&p.quest.id==='green_problem'&&!p.quest.claimed){p.quest.kills=Math.min(p.quest.target,p.quest.kills+1);p.quest.complete=p.quest.kills>=p.quest.target;}
+    gainXp(xp);state.battle=null;state.paused=false;overlay.classList.add('hidden');overlay.innerHTML='';
+    toast(`Victory: +${xp} XP, +${gold}g${matText}${loot?` · ${loot.rarityName} ${loot.name}`:''}`,3500);updateUI();saveGame();
+  }
+
+  function loseBattle(){const p=state.player,s=getStats();p.gold=Math.max(0,p.gold-Math.ceil(p.gold*.06));exitDungeon(false);p.x=(HEARTH.tx+.5)*TILE;p.y=(HEARTH.ty+4.5)*TILE;p.hp=s.hp;p.mp=s.mp;state.battle=null;state.paused=false;overlay.classList.add('hidden');overlay.innerHTML='';toast('You wake in Hearthcross. Some gold was lost.',3000);updateUI();saveGame();}
+  function fleeBattle(){if(Math.random()<.72){state.battle=null;state.paused=false;overlay.classList.add('hidden');overlay.innerHTML='';toast('You escaped.');}else{state.battle.log.push('Could not escape!');enemyTurn();}}
+
+  function gainXp(amount){const p=state.player;p.xp+=amount;while(p.xp>=p.xpNext){p.xp-=p.xpNext;p.level++;p.xpNext=Math.round(p.xpNext*1.42+25);p.statPoints=(p.statPoints||0)+1;learnLevelSkills();const s=getStats();p.hp=s.hp;p.mp=s.mp;toast(`Level ${p.level}! +1 ${CLASSES[p.classId].primaryLabel} automatically and +1 free stat point.`);}}
+
+  function comparisonFor(item){const equipped=state.player.equipment[item.slot];const keys=new Set([...Object.keys(item.bonus||{}),...Object.keys(equipped?.bonus||{})]);return [...keys].map(k=>{const a=item.bonus?.[k]||0,b=equipped?.bonus?.[k]||0,d=a-b;return {k,d,a,b};});}
+
+  function itemCard(item,cost,attr=''){
+    const compare=comparisonFor(item);const stats=Object.entries(item.bonus).map(([k,v])=>`+${v} ${k.toUpperCase()}`).join(' · ');
+    const compareHtml=compare.map(({k,d})=>d>0?`<span class="compare-up">+${d} ${k.toUpperCase()}</span>`:d<0?`<span class="compare-down">${d} ${k.toUpperCase()}</span>`:`<span class="compare-same">= ${k.toUpperCase()}</span>`).join(' ');
+    const current=state.player.equipment[item.slot];
+    return `<div class="card item-card"><div class="rarity r-${item.rarity}">${item.rarityName}</div><h3>${item.name}</h3><p>${item.slot.toUpperCase()} · Lv ${item.level}<br>${stats}</p><div class="item-compare"><small>vs ${current?`${current.rarityName} ${current.name}`:'empty slot'}</small><div>${compareHtml||'<span class="compare-same">No stat change</span>'}</div></div>${cost!==null?`<button ${attr}>Buy — ${cost}g</button>`:`<button ${attr}>Equip</button>`}</div>`;
+  }
+
+  function openInventory(){
+    if(!state.started||state.mode!=='world')return;state.paused=true;const p=state.player;overlay.classList.remove('hidden');
+    const equipped=Object.entries(p.equipment).map(([slot,item])=>`<div class="stat-line"><span>${slot}</span><b>${item?`${item.rarityName} ${item.name}`:'—'}</b></div>`).join('');
+    const materials=Object.entries(p.materials||{}).sort().map(([n,q])=>`<div class="stat-line"><span>${n}</span><b>${q}</b></div>`).join('')||'<p class="small">No crafting materials yet.</p>';
+    overlay.innerHTML=`<div class="modal"><h2>Pack & Equipment</h2><p class="subtitle">Green numbers are upgrades over the currently equipped item; red numbers are losses.</p><div class="two-col"><div><div class="card"><h3>Equipped</h3>${equipped}</div><div class="card materials-card"><h3>Materials</h3>${materials}</div><div class="btn-row"><button data-close>Close</button></div></div><div><div class="item-grid">${p.inventory.length?p.inventory.map((i,n)=>itemCard(i,null,`data-equip="${n}"`)).join(''):'<div class="card"><p>Your pack is empty.</p></div>'}</div></div></div></div>`;
+    overlay.querySelector('[data-close]').onclick=closeOverlay;overlay.querySelectorAll('[data-equip]').forEach(btn=>btn.onclick=()=>{const item=p.inventory[Number(btn.dataset.equip)],old=p.equipment[item.slot];p.equipment[item.slot]=item;p.inventory.splice(Number(btn.dataset.equip),1);if(old)p.inventory.push(old);ensureVitals();saveGame();updateUI();closeOverlay();openInventory();});
+  }
+
+  function openCharacter(){
+    if(!state.started||state.mode!=='world')return;state.paused=true;const p=state.player,s=getStats(),c=CLASSES[p.classId];overlay.classList.remove('hidden');
+    const statButtons=['hp','mp','atk','def','mag','spd'].map(k=>`<div class="stat-line"><span>${k.toUpperCase()}</span><b>${s[k]} ${p.statPoints>0?`<button class="stat-plus" data-stat="${k}">+</button>`:''}</b></div>`).join('');
+    overlay.innerHTML=`<div class="modal narrow"><h2>${c.icon} ${c.name} · Level ${p.level}</h2><p class="subtitle">XP ${p.xp}/${p.xpNext} · ${p.gold} gold · ${p.potions} tonics · Free stat points: <b>${p.statPoints||0}</b></p><div class="growth-note">Class growth: +1 ${c.primaryLabel} automatically every level. You choose where each free point goes.</div>${statButtons}<h3>Known Skills</h3>${allSkills().map(s=>`<div class="stat-line"><span>${s.name}</span><b>MP ${s.mp}</b></div>`).join('')}<div class="btn-row"><button data-close>Close</button><button class="danger" data-reset>Reset Save</button></div></div>`;
+    overlay.querySelector('[data-close]').onclick=closeOverlay;overlay.querySelectorAll('[data-stat]').forEach(btn=>btn.onclick=()=>allocateStat(btn.dataset.stat));overlay.querySelector('[data-reset]').onclick=()=>{if(confirm('Delete local Emberwild save?')){localStorage.removeItem(SAVE_KEY);localStorage.removeItem(OLD_SAVE_KEY);location.reload();}};
+  }
+
+  function allocateStat(k){const p=state.player;if((p.statPoints||0)<=0)return;p.statPoints--;p.freeStats[k]=(p.freeStats[k]||0)+1;const s=getStats();if(k==='hp')p.hp=Math.min(s.hp,p.hp+5);if(k==='mp')p.mp=Math.min(s.mp,p.mp+4);saveGame();updateUI();closeOverlay();openCharacter();}
+
+  function openDungeonMenu(){
+    state.paused=true;overlay.classList.remove('hidden');overlay.innerHTML=`<div class="modal narrow"><h2>Barrowroot Ruins</h2><p class="subtitle">Forest ruins descend below the old road. This is a separate dungeon instance; leaving returns you to the entrance.</p><div class="card"><h3>Solo Expedition</h3><p>Recommended level 4+. Ruin Sentinels patrol the lower chambers. Find the reliquary, then return to the entrance.</p></div><div class="btn-row"><button class="primary" data-enter>Enter Dungeon</button><button data-close>Not yet</button></div></div>`;
+    overlay.querySelector('[data-close]').onclick=closeOverlay;overlay.querySelector('[data-enter]').onclick=enterDungeon;
+  }
+
+  function enterDungeon(){
+    closeOverlay();state.mode='dungeon';state.dungeon={w:42,h:28,x:4.5*TILE,y:14.5*TILE,exitX:3,exitY:14,reliquary:false};
+    state.dungeonEnemies=[createEnemy('ruin_sentinel',18*TILE,9*TILE,1001),createEnemy('ruin_sentinel',25*TILE,19*TILE,1002),createEnemy('ruin_sentinel',33*TILE,13*TILE,1003)];
+    toast('Entered Barrowroot Ruins. Find the reliquary and return to the entrance.',3200);
+  }
+
+  function dungeonTile(tx,ty){
+    if(tx<0||ty<0||tx>=42||ty>=28)return 0;
+    const room1=tx>=2&&tx<=14&&ty>=8&&ty<=20, corridor1=tx>=14&&tx<=22&&ty>=12&&ty<=15, room2=tx>=22&&tx<=31&&ty>=5&&ty<=21, corridor2=tx>=31&&tx<=36&&ty>=12&&ty<=15, room3=tx>=36&&tx<=40&&ty>=9&&ty<=18;
+    return (room1||corridor1||room2||corridor2||room3)?1:0;
+  }
+
+  function updateDungeon(dt){
+    const d=state.dungeon;let dx=0,dy=0;if(state.keys.has('w')||state.keys.has('arrowup'))dy--;if(state.keys.has('s')||state.keys.has('arrowdown'))dy++;if(state.keys.has('a')||state.keys.has('arrowleft'))dx--;if(state.keys.has('d')||state.keys.has('arrowright'))dx++;
+    if(dx||dy){const len=Math.hypot(dx,dy);dx/=len;dy/=len;state.lastMove={dx,dy};state.walkCycle+=dt*9;const step=170*dt,nx=d.x+dx*step,ny=d.y+dy*step;if(dungeonTile(Math.floor(nx/TILE),Math.floor(d.y/TILE)))d.x=nx;if(dungeonTile(Math.floor(d.x/TILE),Math.floor(ny/TILE)))d.y=ny;}
+    for(const e of state.dungeonEnemies){if(!e.alive)continue;const dp=Math.hypot(d.x-e.x,d.y-e.y);if(dp<5*TILE){const vx=(d.x-e.x)/Math.max(1,dp),vy=(d.y-e.y)/Math.max(1,dp),nx=e.x+vx*38*dt,ny=e.y+vy*38*dt;if(dungeonTile(Math.floor(nx/TILE),Math.floor(ny/TILE))){e.x=nx;e.y=ny;}}if(dp<24)startBattle(e,'dungeon');}
+    if(Math.hypot(d.x/TILE-38,d.y/TILE-13)<1.3&&!d.reliquary){d.reliquary=true;toast('Reliquary found. You recovered an Ancient Fragment cache. Return to the entrance.',3200);state.player.materials['Ancient Fragment']=(state.player.materials['Ancient Fragment']||0)+3;saveGame();}
+    updateDungeonPrompt();
+  }
+
+  function updateDungeonPrompt(){const d=state.dungeon;if(Math.hypot(d.x/TILE-d.exitX,d.y/TILE-d.exitY)<2.2){interactionEl.textContent='E — Leave Barrowroot Ruins';interactionEl.classList.remove('hidden');}else interactionEl.classList.add('hidden');}
+  function interactDungeon(){const d=state.dungeon;if(d&&Math.hypot(d.x/TILE-d.exitX,d.y/TILE-d.exitY)<2.2)exitDungeon(true);}
+  function exitDungeon(toEntrance=true){if(state.mode!=='dungeon'&&!state.dungeon)return;state.mode='world';state.dungeon=null;state.dungeonEnemies=[];interactionEl.classList.add('hidden');if(toEntrance){state.player.x=164*TILE;state.player.y=68*TILE;toast('Returned to Mossroad Vale.');}}
+
+  function updateUI(){
+    if(!state.player)return;const p=state.player,s=getStats();hud.innerHTML=`<div class="hud-chip">${CLASSES[p.classId].name}<br><strong>Lv ${p.level}</strong></div><div class="hud-chip">HP<br><strong>${Math.max(0,Math.round(p.hp))}/${s.hp}</strong></div><div class="hud-chip">MP<br><strong>${Math.round(p.mp)}/${s.mp}</strong></div><div class="hud-chip">Gold<br><strong>${p.gold}</strong></div>${p.statPoints?`<div class="hud-chip">Stat Points<br><strong>${p.statPoints}</strong></div>`:''}`;
+    const q=p.quest;let text='',progress='';
+    if(q.id==='green_problem'){text='The Trail Guild wants the Mosslings east of Hearthcross thinned out.';progress=q.complete?'Return to the Trail Guild':`${q.kills}/${q.target} Mosslings defeated`;}
+    else if(q.id==='camp_call'){text='Follow the north trail to Wayfarer Camp and speak to Scout Mara.';progress=q.complete?'Return to the Trail Guild':'Find Scout Mara at Wayfarer Camp';}
+    else if(q.id==='old_stones'){text='Scout Mara reported movement at the old forest ruins northeast of camp.';progress=q.complete?'Return to the Trail Guild':'Discover the Old Mossroad Ruins';}
+    else{text='Mossroad Vale is open. Explore the quarry, Glasswater Pool, Briar Grove, and Barrowroot Ruins.';progress='Free exploration';}
+    questEl.innerHTML=`<div class="quest-title">${q.name}</div><div class="quest-text">${text}</div><div class="quest-progress">${progress}</div>`;
+  }
+
+  function draw(){ctx.fillStyle='#080c09';ctx.fillRect(0,0,canvas.width,canvas.height);if(!state.started)return;if(state.mode==='dungeon')return drawDungeon();const cam=state.camera,x0=Math.floor(cam.x/TILE),y0=Math.floor(cam.y/TILE),x1=Math.min(WORLD_W,x0+Math.ceil(canvas.width/TILE)+2),y1=Math.min(WORLD_H,y0+Math.ceil(canvas.height/TILE)+2);for(let y=Math.max(0,y0);y<y1;y++)for(let x=Math.max(0,x0);x<x1;x++)drawTile(x,y,state.world[y][x],cam);drawScenery(x0,y0,x1,y1,cam);for(const b of state.buildings)drawBuilding(b,cam);for(const n of state.npcs)drawNpc(n,cam);for(const e of state.enemies)if(e.alive)drawEnemy(e,cam);drawPlayer(cam);drawMinimap();}
+
+  function drawTile(x,y,t,cam){const sx=x*TILE-cam.x,sy=y*TILE-cam.y;ctx.fillStyle=COLORS[t]||COLORS.grass;ctx.fillRect(Math.floor(sx),Math.floor(sy),TILE+1,TILE+1);const h=Math.floor(hash2(x,y,4)*8);if(t==='grass'||t==='grass2'||t==='forest'||t==='deep_forest'){ctx.fillStyle=t==='deep_forest'?'#2b5035':t==='forest'?'#315b38':'#4d7c52';if(h<6){ctx.fillRect(sx+4+(h%4)*6,sy+7+(h%3)*6,2,5);ctx.fillRect(sx+5+(h%4)*6,sy+5+(h%3)*6,1,2);}}if(t==='water'||t==='shallow'){ctx.fillStyle=t==='water'?'#34617e':'#5c8b8e';if(h<6)ctx.fillRect(sx+4,sy+7+h*3,15,2);}if(t==='road'){ctx.fillStyle='#8b7e61';ctx.fillRect(sx,sy+12,TILE,7);}if(t==='town'){ctx.fillStyle='#9d9469';if(h<3)ctx.fillRect(sx+5+h*7,sy+5,4,4);}if(t==='rock'){ctx.fillStyle='#717776';ctx.beginPath();ctx.moveTo(sx+5,sy+27);ctx.lineTo(sx+16,sy+8);ctx.lineTo(sx+27,sy+27);ctx.fill();}if(t==='ruins'){ctx.fillStyle='#777b70';ctx.fillRect(sx+4,sy+17,24,10);}}
+
+  function drawScenery(x0,y0,x1,y1,cam){for(let y=Math.max(0,y0-2);y<Math.min(WORLD_H,y1+2);y++)for(let x=Math.max(0,x0-2);x<Math.min(WORLD_W,x1+2);x++){const t=state.world[y][x],r=hash2(x,y,11);if((t==='forest'||t==='deep_forest')&&r>.54)drawTree(x*TILE+16-cam.x,y*TILE+20-cam.y,r);else if((t==='grass'||t==='grass2')&&r>.92)drawPlant(x*TILE+16-cam.x,y*TILE+18-cam.y,r);}}
+  function drawTree(x,y,r){ctx.fillStyle='#3e2d20';ctx.fillRect(x-3,y-12,6,18);ctx.fillStyle=r>.8?'#2e633a':'#285634';ctx.beginPath();ctx.arc(x,y-20,12,0,Math.PI*2);ctx.arc(x-8,y-14,9,0,Math.PI*2);ctx.arc(x+8,y-14,9,0,Math.PI*2);ctx.fill();ctx.fillStyle='#47774b';ctx.fillRect(x-7,y-24,3,4);}
+  function drawPlant(x,y,r){ctx.fillStyle=r>.96?'#d4c277':'#6f9d66';ctx.fillRect(x,y-4,2,7);ctx.fillRect(x-3,y-2,3,2);ctx.fillRect(x+2,y-1,3,2);}
+  function drawBuilding(b,cam){const x=b.x-cam.x,y=b.y-cam.y;if(x+b.w<0||y+b.h<0||x>canvas.width||y>canvas.height)return;ctx.fillStyle='#2b241d';ctx.fillRect(x-3,y-3,b.w+6,b.h+6);ctx.fillStyle=b.color;ctx.fillRect(x,y,b.w,b.h);ctx.fillStyle='#d7c6a0';ctx.fillRect(x+b.w*.38,y+b.h*.62,b.w*.24,b.h*.38);ctx.fillStyle='#171a17';ctx.font='10px monospace';ctx.fillText(b.name,x,y-6);}
+  function drawNpc(n,cam){const x=n.x-cam.x,y=n.y-cam.y;ctx.fillStyle=n.color;ctx.fillRect(x-7,y-9,14,18);ctx.fillStyle='#171a17';ctx.fillRect(x-4,y-14,8,7);}
+  function drawEnemy(e,cam){const x=e.x-cam.x,y=e.y-cam.y,base=ENEMY_TYPES[e.type];ctx.save();ctx.translate(Math.round(x),Math.round(y));ctx.fillStyle='#0007';ctx.beginPath();ctx.ellipse(0,10,e.radius,5,0,0,Math.PI*2);ctx.fill();ctx.fillStyle=base.color;ctx.fillRect(-e.radius,-e.radius,e.radius*2,e.radius*2);ctx.fillStyle='#f0ead8';ctx.fillRect(-5,-4,3,3);ctx.fillRect(3,-4,3,3);if(base.behavior==='aggressive'){ctx.fillStyle='#d97968';ctx.fillRect(-2,-e.radius-7,4,4);}if(base.behavior==='passive'){ctx.fillStyle='#7fb7d9';ctx.fillRect(-2,-e.radius-7,4,4);}if(base.boss){ctx.strokeStyle='#d6b45b';ctx.lineWidth=2;ctx.strokeRect(-e.radius-3,-e.radius-3,e.radius*2+6,e.radius*2+6);}ctx.restore();}
+
+  function drawPlayer(cam,px=state.player.x,py=state.player.y){const x=px-cam.x,y=py-cam.y,dir=state.lastMove,bob=Math.sin(state.walkCycle)*1.2,stride=Math.sin(state.walkCycle)*3;ctx.fillStyle='#0008';ctx.beginPath();ctx.ellipse(x,y+9,11,4,0,0,Math.PI*2);ctx.fill();ctx.save();ctx.translate(Math.round(x),Math.round(y+bob));const side=Math.abs(dir.dx)>Math.abs(dir.dy);const facingLeft=dir.dx<0;ctx.fillStyle='#25211d';ctx.fillRect(-7,-3+stride,5,10);ctx.fillRect(2,-3-stride,5,10);ctx.fillStyle='#3d3f3c';ctx.fillRect(-8,-18,16,17);ctx.fillStyle='#6f4d31';ctx.fillRect(side?(facingLeft?4:-10):6,-13,6,8);ctx.fillStyle='#56724f';if(side)ctx.fillRect(facingLeft?-8:5,-18,4,13);else ctx.fillRect(-9,-17,18,4);ctx.fillStyle='#b98765';ctx.fillRect(-5,-27,10,9);ctx.fillStyle='#2b211d';ctx.fillRect(-6,-29,12,5);ctx.fillStyle='#d6b45b';ctx.fillRect(-2,-15,4,4);ctx.restore();}
+
+  function drawMinimap(){const w=176,h=118,x=canvas.width-w-10,y=10;ctx.globalAlpha=.94;ctx.fillStyle='#07100b';ctx.fillRect(x,y,w,h);ctx.strokeStyle='#69806e';ctx.strokeRect(x,y,w,h);const sample=3,sx=w/WORLD_W,sy=h/WORLD_H;for(let ty=0;ty<WORLD_H;ty+=sample)for(let tx=0;tx<WORLD_W;tx+=sample){const t=state.world[ty][tx];ctx.fillStyle=t==='water'||t==='shallow'?'#315f70':t==='road'?'#8a7857':t==='town'?'#b59d64':t==='rock'?'#626862':'#284934';ctx.fillRect(x+tx*sx,y+ty*sy,Math.max(1,sample*sx+.5),Math.max(1,sample*sy+.5));}for(const poi of state.pois){ctx.fillStyle=poi.type==='town'?'#f0d476':poi.type==='boss'?'#d88968':'#9fc5a0';ctx.fillRect(x+poi.tx*sx-2,y+poi.ty*sy-2,4,4);}for(const e of state.enemies)if(e.alive){const b=ENEMY_TYPES[e.type];ctx.fillStyle=b.boss?'#f0b15f':b.behavior==='aggressive'?'#d76f65':b.behavior==='passive'?'#72a9c9':'#d7c07c';ctx.fillRect(x+(e.x/TILE)*sx-1,y+(e.y/TILE)*sy-1,2,2);}const target=questTarget();if(target){ctx.strokeStyle='#f1e06c';ctx.lineWidth=2;ctx.strokeRect(x+target.tx*sx-4,y+target.ty*sy-4,8,8);}ctx.fillStyle='#fff2a5';ctx.fillRect(x+(state.player.x/TILE)*sx-2,y+(state.player.y/TILE)*sy-2,5,5);ctx.globalAlpha=1;}
+
+  function questTarget(){const q=state.player?.quest;if(!q)return null;if(q.id==='green_problem')return {tx:56,ty:140};if(q.id==='camp_call')return q.complete?{tx:HEARTH.tx,ty:HEARTH.ty}:{tx:92,ty:88};if(q.id==='old_stones')return q.complete?{tx:HEARTH.tx,ty:HEARTH.ty}:{tx:162,ty:66};return null;}
+
+  function drawDungeon(){const d=state.dungeon,cam={x:d.x-canvas.width/2,y:d.y-canvas.height/2};ctx.fillStyle='#070908';ctx.fillRect(0,0,canvas.width,canvas.height);const x0=Math.max(0,Math.floor(cam.x/TILE)-2),y0=Math.max(0,Math.floor(cam.y/TILE)-2),x1=Math.min(42,x0+Math.ceil(canvas.width/TILE)+5),y1=Math.min(28,y0+Math.ceil(canvas.height/TILE)+5);for(let y=y0;y<y1;y++)for(let x=x0;x<x1;x++){const sx=x*TILE-cam.x,sy=y*TILE-cam.y;if(dungeonTile(x,y)){ctx.fillStyle=(x+y)%2?'#41443f':'#393d38';ctx.fillRect(sx,sy,TILE+1,TILE+1);ctx.strokeStyle='#30332f';ctx.strokeRect(sx,sy,TILE,TILE);}else{ctx.fillStyle='#121511';ctx.fillRect(sx,sy,TILE+1,TILE+1);}}ctx.fillStyle='#7b6644';ctx.fillRect(3*TILE-cam.x,14*TILE-cam.y,24,32);ctx.fillStyle=d.reliquary?'#6b6b5c':'#d3b75b';ctx.fillRect(38*TILE-cam.x-10,13*TILE-cam.y-10,20,20);for(const e of state.dungeonEnemies)if(e.alive)drawEnemy(e,cam);drawPlayer(cam,d.x,d.y);ctx.fillStyle='#ece5c9';ctx.font='12px monospace';ctx.fillText('BARROWROOT RUINS',14,22);}
+
+  function toast(msg,ms=2200){toastEl.textContent=msg;toastEl.classList.remove('hidden');clearTimeout(toastEl._timer);toastEl._timer=setTimeout(()=>toastEl.classList.add('hidden'),ms);}
+  function randInt(a,b){return Math.floor(a+Math.random()*(b-a+1));}
+  function capitalize(s){return s?s[0].toUpperCase()+s.slice(1):'';}
+
+  function saveGame(){if(!state.player)return;const data={mapVersion:MAP_VERSION,player:state.player,enemies:state.enemies.map(e=>({id:e.id,alive:e.alive,respawn:e.respawn}))};localStorage.setItem(SAVE_KEY,JSON.stringify(data));state.lastSave=performance.now();}
+
+  function normalizePlayer(p){
+    p.materials ||= {};p.statPoints ||= 0;p.freeStats ||= {hp:0,mp:0,atk:0,def:0,mag:0,spd:0};p.discoveries ||= {hearthcross:true};p.unlockedClasses ||= [p.classId];p.learnedSkills ||= [CLASSES[p.classId].skills[0].id];p.inventory ||= [];p.equipment ||= {weapon:null,head:null,body:null,feet:null,charm:null};p.quest ||= makeQuest('green_problem');
+    if(!['green_problem','camp_call','old_stones','free_roam'].includes(p.quest.id))p.quest=makeQuest('green_problem');
+    return p;
+  }
+
+  function loadGame(){
+    try{let raw=localStorage.getItem(SAVE_KEY),old=false;if(!raw){raw=localStorage.getItem(OLD_SAVE_KEY);old=!!raw;}if(!raw)return false;const data=JSON.parse(raw);buildWorld();state.player=normalizePlayer(data.player);if(old||data.mapVersion!==MAP_VERSION){state.player.x=(HEARTH.tx+.5)*TILE;state.player.y=(HEARTH.ty+4.5)*TILE;state.player.quest=makeQuest('green_problem');}spawnEnemies();for(const saved of data.enemies||[]){const e=state.enemies.find(x=>x.id===saved.id);if(e){e.alive=saved.alive;e.respawn=saved.respawn||0;}}state.started=true;ensureVitals();updateUI();saveGame();return true;}catch(err){console.warn('Save load failed',err);return false;}
+  }
+
+  window.addEventListener('keydown',e=>{const k=e.key.toLowerCase();if(['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(k)){state.keys.add(k);e.preventDefault();}if(e.repeat)return;if(k==='e')interact();if(k==='i')openInventory();if(k==='c')openCharacter();if(k==='escape'&&!overlay.classList.contains('hidden')){if(state.battle)return;if(state.mode==='world')closeOverlay();}});
+  window.addEventListener('keyup',e=>state.keys.delete(e.key.toLowerCase()));window.addEventListener('beforeunload',saveGame);
+
+  let last=performance.now();function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;update(dt);draw();requestAnimationFrame(loop);}
+
+  buildWorld();if(loadGame())toast('Save migrated. Welcome back to Emberwild.');else showClassChoice();requestAnimationFrame(loop);
+})();
