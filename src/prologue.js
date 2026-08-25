@@ -36,8 +36,10 @@
     last: performance.now(),
   };
 
-  installStyles();
-  boot();
+  queueMicrotask(() => {
+    installStyles();
+    boot();
+  });
 
   function installStyles() {
     const style = document.createElement('style');
