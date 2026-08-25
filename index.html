@@ -40,8 +40,8 @@
           </div>
         </section>
         <section class="panel muted-panel">
-          <h2>Mossroad Vale</h2>
-          <p>Explore Hearthcross and the surrounding forest → fight → gather materials → compare loot → spend stats → push toward camps, ruins, quarry, pool, and the first dungeon.</p>
+          <h2>Emberwild</h2>
+          <p>Wake on the unmapped Hollowpath → learn the basics → survive what you can → reach Hearthcross → repay your debt → rebuild a foothold in Mossroad Vale.</p>
         </section>
       </aside>
     </main>
@@ -49,6 +49,15 @@
 
   <div id="overlay" class="overlay hidden"></div>
 
-  <script src="src/game-v2.js"></script>
+  <script>
+    (() => {
+      const prologueDone = localStorage.getItem('emberwild-prologue-v1');
+      const skipOnce = sessionStorage.getItem('emberwild-skip-prologue-once');
+      if (skipOnce) sessionStorage.removeItem('emberwild-skip-prologue-once');
+      const script = document.createElement('script');
+      script.src = (prologueDone || skipOnce) ? 'src/game-v2.js' : 'src/prologue.js';
+      document.body.appendChild(script);
+    })();
+  </script>
 </body>
 </html>
