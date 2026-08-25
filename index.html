@@ -6,49 +6,49 @@
   <title>Emberwild — RPG Prototype</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="src/v2.css" />
+  <link rel="stylesheet" href="src/system-ui.css" />
 </head>
 <body>
-  <div id="app">
-    <header class="topbar">
-      <div>
-        <div class="eyebrow">CHATGPT GAME PROTOTYPE</div>
-        <h1>EMBERWILD</h1>
-      </div>
-      <div id="hud" class="hud"></div>
-    </header>
-
-    <main class="game-shell">
-      <section class="canvas-wrap">
+  <div id="app" class="game-app">
+    <main class="game-stage">
+      <section class="canvas-wrap system-canvas-wrap">
         <canvas id="game" width="960" height="640" aria-label="Emberwild game world"></canvas>
-        <div id="toast" class="toast hidden"></div>
-        <div id="interaction" class="interaction hidden"></div>
-      </section>
 
-      <aside class="sidebar">
-        <section class="panel">
-          <h2>Journey</h2>
-          <div id="quest"></div>
-        </section>
-        <section class="panel">
-          <h2>Controls</h2>
-          <div class="control-grid">
-            <span>Move</span><b>WASD / Arrows</b>
-            <span>Interact</span><b>E</b>
-            <span>Inventory</span><b>I</b>
-            <span>Character</span><b>C</b>
-            <span>Save</span><b>Auto</b>
-          </div>
-        </section>
-        <section class="panel muted-panel">
-          <h2>Emberwild</h2>
-          <p>Wake on the unmapped Hollowpath → learn the basics → survive what you can → reach Hearthcross → repay your debt → rebuild a foothold in Mossroad Vale.</p>
-        </section>
-      </aside>
+        <div class="system-top-left" aria-label="Player status">
+          <div class="system-label">SYSTEM // STATUS</div>
+          <div id="hud" class="hud system-hud"></div>
+        </div>
+
+        <aside id="quest" class="system-objective" aria-label="Tracked journal objective"></aside>
+        <div id="system-notifications" class="system-notifications" aria-live="polite"></div>
+        <div id="toast" class="toast hidden" aria-live="polite"></div>
+        <div id="interaction" class="interaction hidden"></div>
+
+        <nav id="system-dock" class="system-dock" aria-label="System menus">
+          <button type="button" class="system-dock-button" data-system-action="inventory" title="Inventory (I)">
+            <span class="system-dock-icon" aria-hidden="true">▰</span><kbd>I</kbd><span class="system-dock-name">Inventory</span>
+          </button>
+          <button type="button" class="system-dock-button" data-system-action="character" title="Character (C)">
+            <span class="system-dock-icon" aria-hidden="true">♜</span><kbd>C</kbd><span class="system-dock-name">Character</span>
+          </button>
+          <button type="button" class="system-dock-button" data-system-action="journal" title="System Journal (J)">
+            <span class="system-dock-icon" aria-hidden="true">▤</span><kbd>J</kbd><span class="system-dock-name">Journal</span>
+          </button>
+          <button type="button" class="system-dock-button" data-system-action="map" title="Map (M)">
+            <span class="system-dock-icon" aria-hidden="true">⌖</span><kbd>M</kbd><span class="system-dock-name">Map</span>
+          </button>
+          <button type="button" class="system-dock-button system-dock-menu" data-system-action="pause" title="System Menu (Esc)">
+            <span class="system-dock-icon" aria-hidden="true">☰</span><kbd>ESC</kbd><span class="system-dock-name">Menu</span>
+          </button>
+        </nav>
+      </section>
     </main>
   </div>
 
   <div id="overlay" class="overlay hidden"></div>
+  <div id="system-menu-layer" class="system-menu-layer hidden" aria-hidden="true"></div>
 
+  <script src="src/system-ui.js"></script>
   <script src="src/main-menu.js"></script>
 </body>
 </html>
