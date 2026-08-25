@@ -17,11 +17,13 @@
   drawMenuBackdrop();
 
   const save = readSave();
-  const prologueDone = !!localStorage.getItem(PROLOGUE_KEY);
+  const prologueData = readJson(PROLOGUE_KEY);
+  const prologueDone = !!prologueData;
+  const justFinishedPrologue = prologueDone && !save && (Date.now() - Number(prologueData.completedAt || 0) < 15000);
 
-  // The prologue finishes by reloading the page. If it has just completed and
-  // there is not yet a main-game save, continue directly into class selection.
-  if (prologueDone && !save) {
+  // The prologue finishes by reloading the page. Continue directly into class
+  // selection only for that immediate handoff; later launches return to menu.
+  if (justFinishedPrologue) {
     launchMainGame();
     return;
   }
